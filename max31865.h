@@ -1,4 +1,6 @@
 #pragma once
+
+
 /*this function implements a configuration
 of registers MAX31865 (page 13 of datasheet).
 It using 2 interfaces: wrToAddr (uint8_t addr, uint8_t data)
@@ -13,7 +15,10 @@ struct initForMAX31865 {
 	uint8_t wireSchematic;
 	/* AC filter 50/60Hz: 0-60, 1-50*/
 	uint8_t filter;
+	float zeroRTD;
+	float etalonR;
 };
+
 
 
 struct errors_max31865 {
@@ -27,9 +32,14 @@ struct errors_max31865 {
 	uint8_t HardwareError : 1;
 };
 
+/*this class has hardware dependencises - you 
+can change it in according to your platform:
+Arduino, MSC51, x86, Z80 e.t.c.
+It using  to communicate with MAX31865 chip*/ 
 class HAL_plug_MAX31865 {
 public:
 	/**  <<interfaces>> for ConfigurationMgr_MAX31865 */
+        /**TARGET PLATFORM: STM32*/ 
 	/*1)write a data to specific adress (addr)*/
 	void wrToAddr(uint8_t addr, uint8_t data);
 	/*2) read a data from a specific adress. Return uint8_t*/
@@ -37,100 +47,82 @@ public:
 	/*a constructor*/
 	HAL_plug_MAX31865();
 protected:
-	/*simulation registers of IC*/
-	uint8_t arrayOfData[256];
+	
+        static void delayMaker(uint32_t delay); 
+        
 
 };
 
-class FaultDetectionMgr31865 {
+
+class WriteConfigToIC {
 public:
 	/*a constructor*/
-	FaultDetectionMgr31865();
-
-	/* <<interfaces>>*/
-	void runFaultDetectionAutoDelay(void);
-	void runFaultDetectionManualDelay(void);
-	void finishFaultDetectionManualDelay(void);
-	uint8_t isFaultDetectionFinished(void);
-	uint8_t isFaultDetectionRunning(void);
-	uint8_t isManualCycle1Running(void);
-	uint8_t isManualCycle2Running(void);
-	void bindInterface(HAL_plug_MAX31865* param);
-
+	WriteConfigToIC ();
+	/*init a pointer for access to interface*/
+	void bindInterface (HAL_plug_MAX31865* );
+	/*clear a map*/
+	void zeroMap (void);
+	/*assign 1 to bias bit*/
+	void biasMap (void);
+	void convModeMap (void);
+	void shootMap (void);
+	void wire3Map (void);
+	void clearFaultMap(void);
+	void filterMap(void);
+	void templateMap (uint8_t);
+	void sendToIC(void);
+	uint8_t readMap(void);
 protected:
-	HAL_plug_MAX31865* pToInterface;
-	/*set or clear a bit in a byte*/
-	uint8_t setBitInByte(uint8_t  data, uint8_t  mask);
+	uint8_t map;
+	HAL_plug_MAX31865* pInterface;
 };
 
-
-class FaultStatusMgr31865 {
+class FaultChecker {
 public:
-	FaultStatusMgr31865();
-
-	errors_max31865 getFaultStatus(void);
-	void setHighFaultThreshold(uint16_t);
-	void setLowFaultThreshold(uint16_t);
-	void clearStatus(void);
-	void bindToInterface(HAL_plug_MAX31865* ptr);
-
+	FaultChecker();
+	/*uint8_t : are bits of config register*/
+	errors_max31865 checkManually (uint8_t);
+	errors_max31865 checkAuto (uint8_t);
+	void bindToInterface (HAL_plug_MAX31865*);
 protected:
-	HAL_plug_MAX31865* pToInterface;
-	errors_max31865 faultStatus;
+	HAL_plug_MAX31865* pInterface;
+	void delay(uint32_t);
+	void clearErr(void);
+	static errors_max31865 getErrors(HAL_plug_MAX31865* pSPI);
 };
 
-class ConfigurationMgr_MAX31865 {
+class ADCmgr {
 public:
-	/*a constructor - @pointer to an instance of HAL_plug_MAX31865*/
-	ConfigurationMgr_MAX31865();
-	/******  <<interfaces>>*/
-	void setFilter(uint8_t s);
-	uint8_t readFilter(void);
-	void setWireInterface(uint8_t par);
-	void shootStart(void);
-	void setConversionMode(uint8_t mode);
-	uint8_t readConversionMode(void);
-	uint8_t readBias(void);
-	void setBias(uint8_t data);
-	void bindToInterface(HAL_plug_MAX31865* ptr);
-	uint16_t readADC(void);
+	ADCmgr();
+	uint16_t readADC(uint8_t* errCode);
+	void setHighThr (uint16_t);
+	void setLowThr(uint16_t);
+	errors_max31865 getError (void);
+	void bindInterface (HAL_plug_MAX31865*);
 protected:
-	/*assign an interface*/
-	HAL_plug_MAX31865* interfaceForCommunication;
-	/*set or clear a bit in a byte*/
-	uint8_t setBitInByte(uint8_t  data, uint8_t  mask);
+	void clearError (void);
+	HAL_plug_MAX31865* pInterface;
 };
 
-
-class SensorDriverMAX31865 {
+class DriverMAX31865 {
+	public:
+	DriverMAX31865 ();
+	errors_max31865 checkAuto (initForMAX31865* initStruct);
+	errors_max31865 checkManually (initForMAX31865* initStruct);
+	uint16_t readADC (uint8_t *err);
+	errors_max31865 getADCerror (void);
+	void oneShootStart (void);
+	void continuousStart (void);
+	void oneShootModeInit(initForMAX31865* initStruct);
+	void continuousModeInit(initForMAX31865* initStruct);
+         float resistanceToGreeds( float R);
+         float toResistance(uint16_t adc_val);
+        void clearBias (void);
 protected:
-	HAL_plug_MAX31865 spiInterface;
-	static void delayMaker(uint32_t delay); 
-public:
-	FaultDetectionMgr31865 faultDetector;
-	ConfigurationMgr_MAX31865 configManager;
-	FaultStatusMgr31865 faultStatus;
-
-	SensorDriverMAX31865(); 
-	/*initializing an IC in according to initStruct in
-	a single convertion mode*/
-	void singleConvertionInit(initForMAX31865* pInitStruct);
-	/*automatic convertion mode init*/
-	void automaticConvertionInit(initForMAX31865* pInitStruct);
-	/*start a single conversion: ON bias -> conversion -> OFF bias*/
-	void singleStartEconomy(void);
-	/*single start without power off*/
-	void singleStart(void);
-
-	/*halt / start during running (after init) */
-	void automaticContinue(void);
-	void automaticStop(void);
-	/*callback for getting a result*/
-	unsigned short getResultEconomy(errors_max31865* err);
-	unsigned short getResult(errors_max31865* err);
-	/*checking fault automaticaly -
-	by a master. Return a structure with a result*/
-	errors_max31865  checkFaultAutomaticaly(void);
-	errors_max31865  checkFaultManually(void);
-
+	HAL_plug_MAX31865 drvInst;
+	FaultChecker faultCheckerInst;
+	WriteConfigToIC writeConfInst;
+	ADCmgr ADCmgrInst;
+        initForMAX31865 innerStr;
+	void delay(uint32_t val);
 };
